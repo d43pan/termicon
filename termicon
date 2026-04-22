@@ -127,7 +127,7 @@ _termicon_do_search() {
         fi
     done
     if (( ${#_TERMICON_LAST_RESULTS[@]} == 0 )); then
-        printf "    No matches for '%s'.\n" "$1"
+        printf "    No matches for '%s'. Try another word, or paste any emoji directly.\n" "$1"
     fi
 }
 
@@ -156,14 +156,13 @@ _termicon_emoji_prompt() {
     local had_results=false
     while true; do
         if $had_results && (( ${#_TERMICON_LAST_RESULTS[@]} > 0 )); then
-            printf "    [1-%d] pick, search again, paste emoji, or Enter to skip: " \
+            printf "    [1-%d] pick, search again, paste emoji directly, or Enter to skip: " \
                 "${#_TERMICON_LAST_RESULTS[@]}"
+        elif $had_results; then
+            # Previous search had no results — remind them they can paste directly
+            printf "  %-35s → (search or paste emoji directly) " "$label"
         else
             printf "  %-35s → " "$label"
-            if ! $had_results; then
-                # Hint on first prompt only
-                printf ""   # cursor already placed; hint below kept terse
-            fi
         fi
 
         local input
@@ -259,7 +258,8 @@ cmd_setup() {
         echo "Fuzzy search active (fzf). Type to filter, Enter to pick, Esc to skip."
     else
         echo "Type a keyword to search (e.g. 'cloud', 'prod'), pick a number,"
-        echo "or paste an emoji directly. Enter to skip, q to quit."
+        echo "or paste any emoji directly — it doesn't have to be in the list."
+        echo "Enter to skip, q to quit."
     fi
     echo ""
 
