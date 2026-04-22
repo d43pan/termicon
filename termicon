@@ -560,6 +560,78 @@ cmd_local() {
     echo "(All local tabs will use $emoji when no directory rule matches.)"
 }
 
+cmd_remote() {
+    local host="$1"
+    if [[ -z "$host" ]]; then
+        echo "Usage: termicon remote <host>" >&2
+        echo "Check for (and optionally fix) terminal title conflicts on a remote server." >&2
+        exit 1
+    fi
+
+    # Look up local emoji for this host
+    local emoji="🖥️"
+    if [[ -f "$TERMICON_CONFIG" ]]; then
+        local found
+        found=$(grep "^ssh:${host} " "$TERMICON_CONFIG" 2>/dev/null | awk '{print $2}')
+        [[ -n "$found" ]] && emoji="$found"
+    fi
+
+    echo "Checking $host for terminal title conflicts..."
+
+    # Run check on remote: output tab-separated "filepath\tlineno\tcontent" for each conflict
+    local hits
+    hits=$(ssh "$host" bash << 'REMOTE'
+for f in ~/.bashrc ~/.bash_profile ~/.zshrc ~/.zsh_profile; do
+    [[ -f "$f" ]] || continue
+    while IFS=: read -r lineno content; do
+        # Skip already-commented lines
+        [[ "$content" =~ ^[[:space:]]*\# ]] && continue
+        printf '%s\t%s\t%s\n' "$f" "$lineno" "$content"
+    done < <(grep -nE 'PS1=.*\\e\]0;|PS1=.*\\033\]0;' "$f" 2>/dev/null)
+done
+REMOTE
+    )
+
+    if [[ -z "$hits" ]]; then
+        echo "No title conflicts found on $host. ✓"
+        return
+    fi
+
+    echo ""
+    echo "⚠️  Conflict on $host — the remote shell will overwrite '$emoji $host' on every prompt."
+    echo ""
+    while IFS=$'\t' read -r file lineno content; do
+        printf "   %s  line %s:  %s\n" "$file" "$lineno" "$content"
+    done <<< "$hits"
+
+    echo ""
+    echo "Fix — run this on $host:"
+    while IFS=$'\t' read -r file lineno _; do
+        printf "   sed -i '%ss/^/# /' %s\n" "$lineno" "$file"
+    done <<< "$hits"
+
+    echo ""
+    printf "Apply automatically via SSH? Creates .termicon.bak backups. [y/N] "
+    local ans
+    read -r ans < /dev/tty
+    [[ "${ans,,}" != "y" ]] && { echo "No changes made."; return; }
+
+    # Build and ship the fix commands in one SSH call
+    local fix_script=""
+    while IFS=$'\t' read -r file lineno _; do
+        fix_script+="cp '$file' '${file}.termicon.bak' 2>/dev/null || true"$'\n'
+        fix_script+="sed -i '${lineno}s/^/# /' '$file' && echo '  Patched $file (backup: ${file}.termicon.bak)'"$'\n'
+    done <<< "$hits"
+
+    ssh "$host" bash << REMOTE
+set -e
+$fix_script
+REMOTE
+
+    echo ""
+    echo "Done. Reconnect to $host to see the fix take effect."
+}
+
 cmd_edit() {
     _ensure_config
     "${EDITOR:-vi}" "$TERMICON_CONFIG"
@@ -572,6 +644,7 @@ termicon — set emoji for terminal tabs per SSH host or directory
 Usage:
   termicon setup                                 Wizard: assign emoji from your history
   termicon local [emoji]                         Set default emoji for local sessions
+  termicon remote <host>                         Check and fix title conflicts on a remote server
   termicon add <ssh|dir> <host|path> <emoji>     Add or update a mapping
   termicon remove <ssh|dir> <host|path>          Remove a mapping
   termicon list                                  List all mappings
@@ -583,6 +656,7 @@ Examples:
   termicon setup                        # recommended starting point
   termicon local                        # pick default emoji for local tabs
   termicon local 🏠                     # set directly
+  termicon remote myserver.example.com          # fix title conflict on a remote server
   termicon add ssh prod.example.com 🚨
   termicon add dir ~/work 💼
   termicon pick ssh staging.example.com # search by keyword or fuzzy (fzf)
@@ -603,6 +677,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-help}" in
         setup)          cmd_setup ;;
         local)          cmd_local  "$2" ;;
+        remote)         cmd_remote "$2" ;;
         add)            cmd_add    "$2" "$3" "$4" ;;
         remove)         cmd_remove "$2" "$3" ;;
         list)           cmd_list ;;

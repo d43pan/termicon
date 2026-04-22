@@ -126,6 +126,31 @@ dir:/home/user/work/urgent 🔥
 3. **Local default** — fallback for all other local tabs
 4. **Directory name** — bare `basename $PWD` if nothing is configured
 
+## Remote servers
+
+When you SSH into a server, the remote shell's own `.bashrc` can overwrite the emoji title on the first prompt — the same PS1 conflict as the local fix above, but on the remote side.
+
+Use `termicon remote` to check and fix it:
+
+```bash
+termicon remote myserver.example.com
+```
+
+```
+Checking myserver.example.com for terminal title conflicts...
+
+⚠️  Conflict on myserver.example.com — the remote shell will overwrite '🗄️ myserver.example.com' on every prompt.
+
+   /home/user/.bashrc  line 71:  PS1="\[\e]0;...\u@\h: \w\a\]$PS1"
+
+Fix — run this on myserver.example.com:
+   sed -i '71s/^/# /' /home/user/.bashrc
+
+Apply automatically via SSH? Creates .termicon.bak backups. [y/N]
+```
+
+Choosing `y` SSHes in, backs up the file, and comments out the offending line. Choosing `n` leaves the server untouched and just prints the sed command to run manually.
+
 ## Conflict: emoji flickers and disappears
 
 If you see the emoji appear and then immediately vanish, another tool is overwriting the terminal title after termicon sets it. The most common cause is the default Ubuntu/Debian `.bashrc`, which embeds a title in `PS1`:
