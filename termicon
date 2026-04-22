@@ -1,0 +1,497 @@
+#!/usr/bin/env bash
+# termicon - manage terminal tab emoji mappings
+# Usage: termicon <command> [args]
+
+TERMICON_CONFIG="${TERMICON_CONFIG:-$HOME/.config/termicon/config}"
+
+# ── emoji library ─────────────────────────────────────────────────────────────
+# Format: "emoji|keyword1 keyword2 ..."  (all keywords lowercase)
+
+TERMICON_EMOJIS=(
+    # Servers & infrastructure
+    "🖥️|computer screen monitor desktop workstation"
+    "🗄️|server rack storage nas san"
+    "📡|satellite remote network antenna broadcast"
+    "☁️|cloud hosted aws gcp azure digital-ocean"
+    "🌐|web internet globe public http https"
+    "🔌|plugin power connected"
+    "🏗️|build infrastructure devops ci construction"
+    "🗃️|archive backup cold storage"
+    "📁|files directory folder"
+    "💾|disk backup save storage"
+    "🖨️|print output peripheral"
+
+    # Environments
+    "🚨|production prod live critical primary"
+    "🧪|staging testing test lab qa experimental"
+    "🌿|development dev branch local feature"
+    "🐣|sandbox playground demo prototype"
+    "♻️|recycling qa acceptance pre-prod"
+    "🎪|circus staging show"
+
+    # Status & priority
+    "🔥|hot urgent priority fire critical"
+    "⭐|important starred favourite primary"
+    "✅|done complete success healthy ok"
+    "⚠️|warning caution unstable degraded"
+    "🛑|stopped blocked halted down"
+    "❌|error failed broken dead"
+    "🔄|sync backup replication mirror"
+    "🟢|green healthy running ok up"
+    "🔴|red down error stopped dead"
+    "🟡|yellow warning slow degraded"
+
+    # Actions
+    "🚀|deploy release launch ship publish"
+    "🔧|maintenance tools repair fix"
+    "🔨|build hammer compile make"
+    "⚡|fast edge performance speed cdn"
+    "📬|queue jobs tasks workers"
+    "🔭|telescope observe monitor watch"
+    "🔬|research science experiment analysis"
+
+    # Work contexts
+    "💼|work business office professional"
+    "🏠|home personal private local"
+    "🎯|project target goal focus"
+    "📦|packages builds artifacts"
+    "📝|logs notes logging"
+    "📊|analytics metrics monitoring dashboard"
+    "💡|ideas experiments prototype"
+    "🏆|winner top champion best prod"
+    "🧩|plugin integration module"
+    "📈|growth analytics reporting"
+
+    # Automation & bots
+    "🤖|automation bots pipeline ci cd"
+    "⚙️|config settings gear cog"
+    "🧰|toolbox maintenance tools"
+
+    # Security
+    "🔐|secure auth login private"
+    "🔑|keys secrets credentials"
+    "🛡️|security shield protected"
+    "🔒|locked private restricted"
+    "🏴‍☠️|vpn private proxy tunnel pirate"
+
+    # OS & tech
+    "🐧|linux ubuntu debian fedora centos rhel arch"
+    "🐋|docker container whale"
+    "🐙|octopus github git"
+    "🐍|python snake"
+    "💎|ruby gem rails"
+    "🦀|rust crab"
+    "☕|java jvm"
+    "🐘|postgres postgresql elephant"
+    "🐬|mysql dolphin"
+    "🐻|pandas data bear"
+    "🌱|mongodb green"
+    "🦊|firefox fox"
+    "🦁|lion brave"
+
+    # Network & regions
+    "🌍|europe eu west emea"
+    "🌎|americas us east north-america"
+    "🌏|asia pacific apac east"
+    "🔗|link chain connected cluster"
+
+    # Misc personal
+    "🎮|gaming fun personal game"
+    "🌙|night background dark cron scheduled"
+    "🏖️|vacation offline holiday"
+    "❄️|frozen cold ice cache"
+    "📰|news feeds rss"
+    "🎬|media streaming video"
+    "🎸|music audio"
+    "🔋|battery power energy"
+    "🦄|unicorn special unique"
+    "🌈|rainbow colorful"
+    "🧲|magnet sync pull data"
+    "🎲|random misc other"
+    "📮|mail postfix relay"
+)
+
+# ── emoji search & prompt ─────────────────────────────────────────────────────
+
+_TERMICON_LAST_RESULTS=()
+
+_termicon_do_search() {
+    local query="${1,,}"
+    _TERMICON_LAST_RESULTS=()
+    for entry in "${TERMICON_EMOJIS[@]}"; do
+        local emoji="${entry%%|*}"
+        local tags="${entry#*|}"
+        if [[ "${tags}" == *"${query}"* ]]; then
+            _TERMICON_LAST_RESULTS+=("$emoji")
+            printf "    %2d)  %s  %s\n" "${#_TERMICON_LAST_RESULTS[@]}" "$emoji" "$tags"
+        fi
+    done
+    if (( ${#_TERMICON_LAST_RESULTS[@]} == 0 )); then
+        printf "    No matches for '%s'.\n" "$1"
+    fi
+}
+
+# _termicon_emoji_prompt <label>
+# Sets TERMICON_PICKED: "" = skip, "QUIT" = stop, else the chosen emoji.
+_termicon_emoji_prompt() {
+    local label="$1"
+    TERMICON_PICKED=""
+    _TERMICON_LAST_RESULTS=()
+
+    if command -v fzf &>/dev/null; then
+        local result
+        result=$(printf '%s\n' "${TERMICON_EMOJIS[@]}" | \
+            awk -F'|' '{printf "%-5s %s\n", $1, $2}' | \
+            fzf --prompt="  ${label} > " \
+                --height=16 \
+                --layout=reverse \
+                --no-info \
+                --bind='esc:abort')
+        # Empty result = Esc or Enter on empty = skip
+        [[ -n "$result" ]] && TERMICON_PICKED="${result%% *}"
+        return
+    fi
+
+    # ── text search fallback ──────────────────────────────────────────────────
+    local had_results=false
+    while true; do
+        if $had_results && (( ${#_TERMICON_LAST_RESULTS[@]} > 0 )); then
+            printf "    [1-%d] pick, search again, paste emoji, or Enter to skip: " \
+                "${#_TERMICON_LAST_RESULTS[@]}"
+        else
+            printf "  %-35s → " "$label"
+            if ! $had_results; then
+                # Hint on first prompt only
+                printf ""   # cursor already placed; hint below kept terse
+            fi
+        fi
+
+        local input
+        read -r input < /dev/tty
+
+        # Quit
+        [[ "$input" == "q" || "$input" == "quit" ]] && { TERMICON_PICKED="QUIT"; return; }
+
+        # Skip
+        [[ -z "$input" ]] && { TERMICON_PICKED=""; return; }
+
+        # Number pick (only valid after we have search results)
+        if $had_results && [[ "$input" =~ ^[0-9]+$ ]]; then
+            local n="$input"
+            if (( n >= 1 && n <= ${#_TERMICON_LAST_RESULTS[@]} )); then
+                TERMICON_PICKED="${_TERMICON_LAST_RESULTS[$((n-1))]}"
+                return
+            fi
+            printf "    Out of range, try again.\n"
+            continue
+        fi
+
+        # Text search (ASCII letters only → keyword search)
+        if [[ "$input" =~ ^[a-zA-Z0-9\ _-]+$ ]]; then
+            _termicon_do_search "$input"
+            had_results=true
+            continue
+        fi
+
+        # Anything else → treat as a directly-pasted emoji
+        TERMICON_PICKED="$input"
+        return
+    done
+}
+
+# ── history helpers ───────────────────────────────────────────────────────────
+
+_termicon_read_history() {
+    [[ -f "$HOME/.bash_history" ]] && cat "$HOME/.bash_history"
+    # Zsh extended format: ": timestamp:elapsed;command"
+    [[ -f "$HOME/.zsh_history" ]] && sed 's/^: [0-9]*:[0-9]*;//' "$HOME/.zsh_history"
+}
+
+_termicon_top_ssh() {
+    local n="${1:-15}"
+    _termicon_read_history | \
+        grep -oE '(^|[|&;])\s*ssh\s+[^;|&]+' | \
+        sed 's/.*ssh //' | \
+        awk '
+        {
+            flags = "bcDEeFiIJlLmopQRSWw"
+            skip = 0
+            for (i = 1; i <= NF; i++) {
+                if (skip) { skip = 0; continue }
+                if ($i ~ /^-.$/ && index(flags, substr($i,2,1))) { skip = 1; continue }
+                if ($i ~ /^-/) { continue }
+                host = $i
+                sub(/.*@/, "", host)
+                sub(/:.*/, "", host)
+                if (host != "") { print host; break }
+            }
+        }' | \
+        sort | uniq -c | sort -rn | head -n "$n"
+}
+
+_termicon_top_dirs() {
+    local n="${1:-15}"
+    _termicon_read_history | \
+        grep -oE '(^|[|&;])\s*cd\s+[^;|&]+' | \
+        sed 's/.*cd //' | \
+        awk '{print $1}' | \
+        grep -E '^[/~]' | \
+        sed "s|^~|$HOME|" | \
+        sed 's|/$||' | \
+        sort | uniq -c | sort -rn | head -n "$n"
+}
+
+_termicon_is_configured() {
+    local type="$1" key="$2"
+    [[ -f "$TERMICON_CONFIG" ]] && grep -qE "^${type}:${key//./\\.} " "$TERMICON_CONFIG"
+}
+
+# ── setup wizard ──────────────────────────────────────────────────────────────
+
+cmd_setup() {
+    _ensure_config
+
+    local hr="────────────────────────────────────────────────────"
+    echo "termicon setup — configure emoji from your shell history"
+    echo "$hr"
+
+    if command -v fzf &>/dev/null; then
+        echo "Fuzzy search active (fzf). Type to filter, Enter to pick, Esc to skip."
+    else
+        echo "Type a keyword to search (e.g. 'cloud', 'prod'), pick a number,"
+        echo "or paste an emoji directly. Enter to skip, q to quit."
+    fi
+    echo ""
+
+    # ── SSH hosts ──────────────────────────────────────────────────────────────
+    echo "$hr"
+    local ssh_raw
+    ssh_raw=$(_termicon_top_ssh 15)
+
+    if [[ -z "$ssh_raw" ]]; then
+        echo "No SSH commands found in history."
+    else
+        echo "Top SSH hosts from your history:"
+        echo ""
+        local hosts=() counts=()
+        while IFS=' ' read -r count host; do
+            hosts+=("$host")
+            counts+=("$count")
+            local already=""
+            _termicon_is_configured "ssh" "$host" && already=" ✓ configured"
+            printf "  %-38s %dx%s\n" "$host" "$count" "$already"
+        done <<< "$ssh_raw"
+        echo ""
+
+        for i in "${!hosts[@]}"; do
+            local host="${hosts[$i]}"
+            _termicon_is_configured "ssh" "$host" && continue
+            _termicon_emoji_prompt "ssh:$host"
+            [[ "$TERMICON_PICKED" == "QUIT" ]] && { echo ""; echo "Stopped."; return; }
+            [[ -z "$TERMICON_PICKED" ]] && continue
+            cmd_add "ssh" "$host" "$TERMICON_PICKED"
+        done
+    fi
+
+    # ── Directories ────────────────────────────────────────────────────────────
+    echo ""
+    echo "$hr"
+    local dir_raw
+    dir_raw=$(_termicon_top_dirs 15)
+
+    if [[ -z "$dir_raw" ]]; then
+        echo "No absolute cd paths found in history."
+    else
+        echo "Top directories from your history:"
+        echo ""
+        local dirs=() dir_counts=()
+        while IFS=' ' read -r count dir; do
+            dirs+=("$dir")
+            dir_counts+=("$count")
+            local display="${dir/$HOME/\~}"
+            local already=""
+            _termicon_is_configured "dir" "$dir" && already=" ✓ configured"
+            printf "  %-38s %dx%s\n" "$display" "$count" "$already"
+        done <<< "$dir_raw"
+        echo ""
+
+        for i in "${!dirs[@]}"; do
+            local dir="${dirs[$i]}"
+            local display="${dir/$HOME/\~}"
+            _termicon_is_configured "dir" "$dir" && continue
+            _termicon_emoji_prompt "dir:$display"
+            [[ "$TERMICON_PICKED" == "QUIT" ]] && { echo ""; echo "Stopped."; return; }
+            [[ -z "$TERMICON_PICKED" ]] && continue
+            cmd_add "dir" "$dir" "$TERMICON_PICKED"
+        done
+    fi
+
+    echo ""
+    echo "$hr"
+    echo "Done! Run 'termicon list' to review your mappings."
+}
+
+# ── config helpers ────────────────────────────────────────────────────────────
+
+_ensure_config() {
+    mkdir -p "$(dirname "$TERMICON_CONFIG")"
+    touch "$TERMICON_CONFIG"
+}
+
+cmd_add() {
+    local type="$1" key="$2" emoji="$3"
+    if [[ -z "$type" || -z "$key" || -z "$emoji" ]]; then
+        echo "Usage: termicon add <ssh|dir> <host|path> <emoji>" >&2
+        exit 1
+    fi
+    if [[ "$type" != "ssh" && "$type" != "dir" ]]; then
+        echo "Type must be 'ssh' or 'dir'" >&2
+        exit 1
+    fi
+
+    _ensure_config
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    grep -v "^${type}:${key} " "$TERMICON_CONFIG" > "$tmpfile" 2>/dev/null || true
+    echo "${type}:${key} ${emoji}" >> "$tmpfile"
+    mv "$tmpfile" "$TERMICON_CONFIG"
+
+    echo "Added: ${type}:${key}  →  ${emoji}"
+}
+
+cmd_remove() {
+    local type="$1" key="$2"
+    if [[ -z "$type" || -z "$key" ]]; then
+        echo "Usage: termicon remove <ssh|dir> <host|path>" >&2
+        exit 1
+    fi
+
+    if [[ ! -f "$TERMICON_CONFIG" ]]; then
+        echo "No config file found at $TERMICON_CONFIG" >&2
+        exit 1
+    fi
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    grep -v "^${type}:${key} " "$TERMICON_CONFIG" > "$tmpfile" 2>/dev/null || true
+    mv "$tmpfile" "$TERMICON_CONFIG"
+
+    echo "Removed: ${type}:${key}"
+}
+
+cmd_list() {
+    if [[ ! -f "$TERMICON_CONFIG" ]] || [[ ! -s "$TERMICON_CONFIG" ]]; then
+        echo "No mappings configured yet."
+        echo ""
+        echo "Try:  termicon setup"
+        return
+    fi
+
+    local has_ssh=false has_dir=false
+    while IFS=' ' read -r entry emoji || [[ -n "$entry" ]]; do
+        [[ "$entry" == "#"* || -z "$entry" ]] && continue
+        local etype="${entry%%:*}"
+        [[ "$etype" == "ssh" ]] && has_ssh=true
+        [[ "$etype" == "dir" ]] && has_dir=true
+    done < "$TERMICON_CONFIG"
+
+    if $has_ssh; then
+        echo "SSH hosts:"
+        while IFS=' ' read -r entry emoji || [[ -n "$entry" ]]; do
+            [[ "$entry" == "#"* || -z "$entry" || -z "$emoji" ]] && continue
+            [[ "${entry%%:*}" != "ssh" ]] && continue
+            printf "  %s  %s\n" "$emoji" "${entry#*:}"
+        done < "$TERMICON_CONFIG"
+    fi
+
+    $has_ssh && $has_dir && echo ""
+
+    if $has_dir; then
+        echo "Directories:"
+        while IFS=' ' read -r entry emoji || [[ -n "$entry" ]]; do
+            [[ "$entry" == "#"* || -z "$entry" || -z "$emoji" ]] && continue
+            [[ "${entry%%:*}" != "dir" ]] && continue
+            local key="${entry#*:}"
+            printf "  %s  %s\n" "$emoji" "${key/$HOME/\~}"
+        done < "$TERMICON_CONFIG"
+    fi
+}
+
+cmd_pick() {
+    local type="$1" key="$2"
+    if [[ -z "$type" || -z "$key" ]]; then
+        echo "Usage: termicon pick <ssh|dir> <host|path>" >&2
+        exit 1
+    fi
+    if [[ "$type" != "ssh" && "$type" != "dir" ]]; then
+        echo "Type must be 'ssh' or 'dir'" >&2
+        exit 1
+    fi
+
+    if command -v fzf &>/dev/null; then
+        echo "Fuzzy search — type to filter, Enter to select, Esc to cancel."
+    else
+        echo "Type a keyword to search (e.g. 'cloud', 'linux'), then pick a number."
+        echo "Or paste an emoji directly. Enter to cancel."
+    fi
+    echo ""
+
+    _termicon_emoji_prompt "${type}:${key}"
+
+    if [[ -z "$TERMICON_PICKED" || "$TERMICON_PICKED" == "QUIT" ]]; then
+        echo "No emoji selected, nothing changed."
+    else
+        cmd_add "$type" "$key" "$TERMICON_PICKED"
+    fi
+}
+
+cmd_edit() {
+    _ensure_config
+    "${EDITOR:-vi}" "$TERMICON_CONFIG"
+}
+
+cmd_help() {
+    cat <<EOF
+termicon — set emoji for terminal tabs per SSH host or directory
+
+Usage:
+  termicon setup                                 Wizard: assign emoji from your history
+  termicon add <ssh|dir> <host|path> <emoji>     Add or update a mapping
+  termicon remove <ssh|dir> <host|path>          Remove a mapping
+  termicon list                                  List all mappings
+  termicon pick <ssh|dir> <host|path>            Search and assign an emoji
+  termicon edit                                  Open config in \$EDITOR
+  termicon help                                  Show this help
+
+Examples:
+  termicon setup                        # recommended starting point
+  termicon add ssh prod.example.com 🚨
+  termicon add dir ~/work 💼
+  termicon pick ssh staging.example.com # search by keyword or fuzzy (fzf)
+  termicon remove dir ~/work
+
+Config file: $TERMICON_CONFIG
+
+Shell plugin — add to your ~/.bashrc or ~/.zshrc:
+  source /path/to/termicon/termicon.sh
+
+Tip: install fzf for fuzzy emoji search in setup and pick.
+     Without fzf, type keywords like 'cloud', 'prod', 'linux' to filter.
+EOF
+}
+
+case "${1:-help}" in
+    setup)          cmd_setup ;;
+    add)            cmd_add    "$2" "$3" "$4" ;;
+    remove)         cmd_remove "$2" "$3" ;;
+    list)           cmd_list ;;
+    pick)           cmd_pick   "$2" "$3" ;;
+    edit)           cmd_edit ;;
+    help|--help|-h) cmd_help ;;
+    *)
+        echo "Unknown command: $1" >&2
+        echo "Run 'termicon help' for usage." >&2
+        exit 1
+        ;;
+esac
