@@ -56,14 +56,34 @@ _termicon_lookup() {
     return 1
 }
 
+_termicon_get_local_emoji() {
+    [[ ! -f "$TERMICON_CONFIG" ]] && return 1
+    while IFS=' ' read -r entry emoji_val || [[ -n "$entry" ]]; do
+        [[ "$entry" == "#"* || -z "$entry" || -z "$emoji_val" ]] && continue
+        if [[ "$entry" == "local" ]]; then
+            echo "$emoji_val"
+            return 0
+        fi
+    done < "$TERMICON_CONFIG"
+    return 1
+}
+
 _termicon_on_cd() {
     local dir="$PWD"
-    local emoji
-    emoji=$(_termicon_lookup "dir" "$dir")
     local label
     label="$(basename "$dir")"
+
+    local emoji
+    emoji=$(_termicon_lookup "dir" "$dir")
     if [[ -n "$emoji" ]]; then
         _termicon_set_title "$emoji $label"
+        return
+    fi
+
+    local local_emoji
+    local_emoji=$(_termicon_get_local_emoji)
+    if [[ -n "$local_emoji" ]]; then
+        _termicon_set_title "$local_emoji $label"
     else
         _termicon_set_title "$label"
     fi

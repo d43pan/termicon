@@ -326,6 +326,31 @@ cmd_setup() {
         done
     fi
 
+    # ── Local default ──────────────────────────────────────────────────────────
+    echo ""
+    echo "$hr"
+
+    local cur_local=""
+    [[ -f "$TERMICON_CONFIG" ]] && cur_local=$(grep "^local " "$TERMICON_CONFIG" | awk '{print $2}')
+
+    if [[ -n "$cur_local" ]]; then
+        echo "Local default already set: $cur_local  (use 'termicon local' to change)"
+    else
+        echo "Local default — shown on all local tabs when no directory rule matches."
+        _termicon_emoji_prompt "local default"
+        if [[ "$TERMICON_PICKED" == "QUIT" ]]; then
+            echo ""; echo "Stopped."
+        elif [[ -n "$TERMICON_PICKED" ]]; then
+            _ensure_config
+            local tmpfile
+            tmpfile=$(mktemp)
+            grep -v "^local " "$TERMICON_CONFIG" > "$tmpfile" 2>/dev/null || true
+            echo "local $TERMICON_PICKED" >> "$tmpfile"
+            mv "$tmpfile" "$TERMICON_CONFIG"
+            echo "Set local default: $TERMICON_PICKED"
+        fi
+    fi
+
     echo ""
     echo "$hr"
     echo "Done! Run 'termicon list' to review your mappings."
@@ -388,13 +413,22 @@ cmd_list() {
         return
     fi
 
-    local has_ssh=false has_dir=false
+    local has_local=false has_ssh=false has_dir=false
     while IFS=' ' read -r entry emoji || [[ -n "$entry" ]]; do
         [[ "$entry" == "#"* || -z "$entry" ]] && continue
+        [[ "$entry" == "local" ]] && has_local=true
         local etype="${entry%%:*}"
         [[ "$etype" == "ssh" ]] && has_ssh=true
         [[ "$etype" == "dir" ]] && has_dir=true
     done < "$TERMICON_CONFIG"
+
+    if $has_local; then
+        local local_emoji
+        local_emoji=$(grep "^local " "$TERMICON_CONFIG" | awk '{print $2}')
+        printf "Local default:\n  %s  (all local tabs, no directory rule)\n" "$local_emoji"
+    fi
+
+    $has_local && ( $has_ssh || $has_dir ) && echo ""
 
     if $has_ssh; then
         echo "SSH hosts:"
@@ -446,6 +480,36 @@ cmd_pick() {
     fi
 }
 
+cmd_local() {
+    local emoji="$1"
+
+    if [[ -z "$emoji" ]]; then
+        # No arg — open the picker
+        if command -v fzf &>/dev/null; then
+            echo "Fuzzy search — type to filter, Enter to select, Esc to cancel."
+        else
+            echo "Type a keyword to search (e.g. 'home', 'laptop'), pick a number,"
+            echo "or paste any emoji directly."
+        fi
+        echo ""
+        _termicon_emoji_prompt "local default"
+        if [[ -z "$TERMICON_PICKED" || "$TERMICON_PICKED" == "QUIT" ]]; then
+            echo "No emoji selected, nothing changed."
+            return
+        fi
+        emoji="$TERMICON_PICKED"
+    fi
+
+    _ensure_config
+    local tmpfile
+    tmpfile=$(mktemp)
+    grep -v "^local " "$TERMICON_CONFIG" > "$tmpfile" 2>/dev/null || true
+    echo "local $emoji" >> "$tmpfile"
+    mv "$tmpfile" "$TERMICON_CONFIG"
+    echo "Set local default:  →  $emoji"
+    echo "(All local tabs will use $emoji when no directory rule matches.)"
+}
+
 cmd_edit() {
     _ensure_config
     "${EDITOR:-vi}" "$TERMICON_CONFIG"
@@ -457,6 +521,7 @@ termicon — set emoji for terminal tabs per SSH host or directory
 
 Usage:
   termicon setup                                 Wizard: assign emoji from your history
+  termicon local [emoji]                         Set default emoji for local sessions
   termicon add <ssh|dir> <host|path> <emoji>     Add or update a mapping
   termicon remove <ssh|dir> <host|path>          Remove a mapping
   termicon list                                  List all mappings
@@ -466,6 +531,8 @@ Usage:
 
 Examples:
   termicon setup                        # recommended starting point
+  termicon local                        # pick default emoji for local tabs
+  termicon local 🏠                     # set directly
   termicon add ssh prod.example.com 🚨
   termicon add dir ~/work 💼
   termicon pick ssh staging.example.com # search by keyword or fuzzy (fzf)
@@ -483,6 +550,7 @@ EOF
 
 case "${1:-help}" in
     setup)          cmd_setup ;;
+    local)          cmd_local  "$2" ;;
     add)            cmd_add    "$2" "$3" "$4" ;;
     remove)         cmd_remove "$2" "$3" ;;
     list)           cmd_list ;;
