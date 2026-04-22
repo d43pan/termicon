@@ -548,18 +548,21 @@ Tip: install fzf for fuzzy emoji search in setup and pick.
 EOF
 }
 
-case "${1:-help}" in
-    setup)          cmd_setup ;;
-    local)          cmd_local  "$2" ;;
-    add)            cmd_add    "$2" "$3" "$4" ;;
-    remove)         cmd_remove "$2" "$3" ;;
-    list)           cmd_list ;;
-    pick)           cmd_pick   "$2" "$3" ;;
-    edit)           cmd_edit ;;
-    help|--help|-h) cmd_help ;;
-    *)
-        echo "Unknown command: $1" >&2
-        echo "Run 'termicon help' for usage." >&2
-        exit 1
-        ;;
-esac
+# Only run commands when executed directly, not when sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-help}" in
+        setup)          cmd_setup ;;
+        local)          cmd_local  "$2" ;;
+        add)            cmd_add    "$2" "$3" "$4" ;;
+        remove)         cmd_remove "$2" "$3" ;;
+        list)           cmd_list ;;
+        pick)           cmd_pick   "$2" "$3" ;;
+        edit)           cmd_edit ;;
+        help|--help|-h) cmd_help ;;
+        *)
+            echo "Unknown command: $1" >&2
+            echo "Run 'termicon help' for usage." >&2
+            exit 1
+            ;;
+    esac
+fi
