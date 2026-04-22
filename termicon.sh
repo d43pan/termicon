@@ -133,14 +133,17 @@ ssh() {
     return $exit_code
 }
 
-# Register directory change hooks
+# Register hooks
 if [[ -n "$ZSH_VERSION" ]]; then
     autoload -Uz add-zsh-hook 2>/dev/null
     add-zsh-hook chpwd _termicon_on_cd
+    add-zsh-hook precmd _termicon_on_cd
 elif [[ -n "$BASH_VERSION" ]]; then
     cd() { builtin cd "$@" && _termicon_on_cd; }
     pushd() { builtin pushd "$@" && _termicon_on_cd; }
     popd() { builtin popd "$@" && _termicon_on_cd; }
+    # PROMPT_COMMAND runs before PS1 renders — append so we run last
+    PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }_termicon_on_cd"
 fi
 
 # Set title for the current directory on shell startup
