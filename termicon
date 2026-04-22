@@ -247,12 +247,62 @@ _termicon_is_configured() {
 
 # ── setup wizard ──────────────────────────────────────────────────────────────
 
+_termicon_check_conflicts() {
+    local hr="────────────────────────────────────────────────────"
+    local conflicts=()
+
+    # Check every shell rc file for a PS1-embedded OSC title sequence
+    local rcfiles=()
+    [[ -f "$HOME/.bashrc" ]]        && rcfiles+=("$HOME/.bashrc")
+    [[ -f "$HOME/.bash_profile" ]]  && rcfiles+=("$HOME/.bash_profile")
+    [[ -f "$HOME/.zshrc" ]]         && rcfiles+=("$HOME/.zshrc")
+    [[ -f "$HOME/.zsh_profile" ]]   && rcfiles+=("$HOME/.zsh_profile")
+
+    for rcfile in "${rcfiles[@]}"; do
+        # Look for un-commented lines that embed OSC 0/1/2 in PS1
+        if grep -qE "^\s*PS1=.*\\\\(\[\\\\e\]|033\])0;" "$rcfile" 2>/dev/null || \
+           grep -qE "^\s*PS1=.*\\\\e\]0;" "$rcfile" 2>/dev/null; then
+            local lineno
+            lineno=$(grep -nE "^\s*PS1=.*\\\\[e(033]" "$rcfile" | grep "\\]0;" | head -1 | cut -d: -f1)
+            conflicts+=("$rcfile:$lineno")
+        fi
+    done
+
+    # Check if PROMPT_COMMAND already sets a title (outside of termicon)
+    if [[ -n "$PROMPT_COMMAND" ]] && \
+       echo "$PROMPT_COMMAND" | grep -qE '\\\\(033|e)\]0;' && \
+       ! echo "$PROMPT_COMMAND" | grep -q "_termicon"; then
+        conflicts+=("PROMPT_COMMAND (already set in environment)")
+    fi
+
+    if (( ${#conflicts[@]} == 0 )); then
+        return 0
+    fi
+
+    echo ""
+    echo "⚠️  Potential conflict detected — your emoji may flash and disappear."
+    echo ""
+    echo "   Another tool is setting the terminal title and will overwrite termicon."
+    echo "   Conflicts found:"
+    for c in "${conflicts[@]}"; do
+        echo "     $c"
+    done
+    echo ""
+    echo "   Fix: comment out or remove the conflicting PS1 title line, e.g.:"
+    echo "     # PS1=\"\[\e]0;\u@\h: \w\a\]\$PS1\""
+    echo ""
+    echo "   termicon uses PROMPT_COMMAND to set the title instead."
+    echo "$hr"
+}
+
 cmd_setup() {
     _ensure_config
 
     local hr="────────────────────────────────────────────────────"
     echo "termicon setup — configure emoji from your shell history"
     echo "$hr"
+
+    _termicon_check_conflicts
 
     if command -v fzf &>/dev/null; then
         echo "Fuzzy search active (fzf). Type to filter, Enter to pick, Esc to skip."
