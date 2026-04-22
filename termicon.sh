@@ -6,13 +6,12 @@
 TERMICON_CONFIG="${TERMICON_CONFIG:-$HOME/.config/termicon/config}"
 
 _termicon_set_title() {
+    [[ -w /dev/tty ]] || return
     local title="$1"
     if [[ -n "$TMUX" ]]; then
-        # In tmux: set the window name
-        printf '\ek%s\e\\' "$title"
+        printf '\ek%s\e\\' "$title" >/dev/tty
     else
-        # Standard terminals: OSC 0 sets both tab and window title
-        printf '\033]0;%s\007' "$title"
+        printf '\033]0;%s\007' "$title" >/dev/tty
     fi
 }
 
